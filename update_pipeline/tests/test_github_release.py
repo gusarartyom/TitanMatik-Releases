@@ -64,6 +64,17 @@ class GitHubReleaseTests(unittest.TestCase):
         release=self.prepare('candidate')
         self.assertTrue(release['draft']); self.assertIsNone(self.api.latest())
         self.assertEqual(self.api.public_checks,0)
+    def test_unpublished_draft_found_when_tag_endpoint_returns_404(self):
+        api=gh.GitHub('owner/repo','test-token')
+        tag='tm-'+'a'*64+'-'+'b'*64
+        draft={'id':7,'tag_name':tag,'draft':True}
+        with patch.object(api,'optional',return_value=None), patch.object(api,'request',return_value=[draft]):
+            self.assertEqual(api.by_tag(tag),draft)
+    def test_duplicate_draft_identity_is_rejected(self):
+        api=gh.GitHub('owner/repo','test-token')
+        tag='tm-'+'a'*64+'-'+'b'*64
+        with patch.object(api,'optional',return_value=None), patch.object(api,'request',return_value=[{'tag_name':tag},{'tag_name':tag}]):
+            with self.assertRaises(ValueError): api.by_tag(tag)
     def test_stage_keeps_latest_unchanged(self):
         release=self.prepare()
         self.assertFalse(release['draft']); self.assertTrue(release['prerelease'])

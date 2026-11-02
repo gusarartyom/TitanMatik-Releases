@@ -57,7 +57,21 @@ class GitHub:
     def by_tag(self, tag):
         if not TAG.fullmatch(tag):
             raise ValueError('Invalid TitanMatik release tag')
-        return self.optional('/releases/tags/' + tag)
+        release = self.optional('/releases/tags/' + tag)
+        if release:
+            return release
+        # GitHub does not resolve an unpublished draft by its future tag.
+        # Maintainers can find it through the authenticated release collection.
+        for page in range(1, 11):
+            items = self.request('GET', '/releases?per_page=100&page=' + str(page))
+            matches = [item for item in items if item.get('tag_name') == tag]
+            if len(matches) > 1:
+                raise ValueError('Duplicate release identity')
+            if matches:
+                return matches[0]
+            if len(items) < 100:
+                return None
+        raise ValueError('Release search limit exceeded')
 
     def create(self, tag, body):
         return self.request('POST', '/releases', {'tag_name': tag, 'name': 'TitanMatik ' + tag[3:15],
