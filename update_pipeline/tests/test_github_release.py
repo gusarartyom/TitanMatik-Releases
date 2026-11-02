@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import io
 import json
 import os
@@ -27,6 +28,7 @@ class FakeGitHub:
     def latest(self): return copy.deepcopy(self.releases.get(self.current_id))
     def by_tag(self, tag):
         return copy.deepcopy(next((r for r in self.releases.values() if r['tag_name']==tag),None))
+    def source_draft(self, tag): return self.by_tag(tag)
     def create(self, tag, body):
         number = len(self.releases)+1
         release = dict(id=number,tag_name=tag,body=body,draft=True,prerelease=True,assets=[])
@@ -35,7 +37,7 @@ class FakeGitHub:
     def upload(self, release, name, data):
         number=len(self.data)+1
         self.data[number]=b'corrupted' if self.corrupt_upload and name==gh.SETUP else data
-        self.releases[release['id']]['assets'].append(dict(id=number,name=name))
+        self.releases[release['id']]['assets'].append(dict(id=number,name=name,size=len(data)))
     def read_asset(self, asset): return io.BytesIO(self.data[asset['id']])
     def patch(self, release, **fields):
         if fields.get('make_latest')=='true':
@@ -63,6 +65,24 @@ class GitHubReleaseTests(unittest.TestCase):
         release=self.prepare('candidate')
         self.assertTrue(release['draft']); self.assertIsNone(self.api.latest())
         self.assertEqual(self.api.public_checks,0)
+    def test_manual_source_is_hash_verified(self):
+        data=b'PK-harmless-source-fixture'
+        digest=hashlib.sha256(data).hexdigest()
+        release=self.api.create('source-'+digest,'manual input')
+        self.api.upload(release,'HeroWars_GUSSAR.zip',data)
+        target=Path(self.temp.name)/'source-output'
+        self.assertEqual(gh.download_source(self.api,release['tag_name'],target),digest)
+        self.assertEqual((target/'source.zip').read_bytes(),data)
+    def test_manual_source_corruption_is_rejected(self):
+        release=self.api.create('source-'+'a'*64,'manual input')
+        self.api.upload(release,'HeroWars_GUSSAR.zip',b'wrong bytes')
+        with self.assertRaises(ValueError):
+            gh.download_source(self.api,release['tag_name'],Path(self.temp.name)/'bad-source')
+    def test_manual_source_must_remain_private_draft(self):
+        release=self.api.create('source-'+'a'*64,'manual input')
+        self.api.patch(release,draft=False)
+        with self.assertRaises(ValueError):
+            gh.download_source(self.api,release['tag_name'],Path(self.temp.name)/'public-source')
     def test_stage_keeps_latest_unchanged(self):
         release=self.prepare()
         self.assertFalse(release['draft']); self.assertTrue(release['prerelease'])

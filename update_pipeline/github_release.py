@@ -59,6 +59,11 @@ class GitHub:
             raise ValueError('Invalid TitanMatik release tag')
         return self.optional('/releases/tags/' + tag)
 
+    def source_draft(self, tag):
+        if not re.fullmatch('source-[a-f0-9]{64}', tag):
+            raise ValueError('Invalid manual source tag')
+        return self.optional('/releases/tags/' + tag)
+
     def create(self, tag, body):
         return self.request('POST', '/releases', {'tag_name': tag, 'name': 'TitanMatik ' + tag[3:15],
                             'body': body, 'draft': True, 'prerelease': True})
@@ -97,6 +102,32 @@ def asset(release, name):
     if len(found) != 1:
         raise ValueError('Missing or duplicate release asset: ' + name)
     return found[0]
+
+def download_source(api, tag, destination='build'):
+    """Manual test input only; scheduled runs still use the original Drive API."""
+    api.assert_public()
+    release = api.source_draft(tag)
+    if not release or not release.get('draft'):
+        raise ValueError('Manual source must be a private draft release')
+    item = asset(release, 'HeroWars_GUSSAR.zip')
+    if not 0 < item.get('size', 0) <= 2 * 1024**3:
+        raise ValueError('Source asset size outside limits')
+    directory = Path(destination)
+    directory.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    total = 0
+    with api.read_asset(item) as response, (directory / 'source.zip').open('wb') as output:
+        while chunk := response.read(1024 * 1024):
+            total += len(chunk)
+            if total > item['size']:
+                raise ValueError('Source download exceeds declared size')
+            digest.update(chunk)
+            output.write(chunk)
+    if total != item['size'] or digest.hexdigest() != tag[7:]:
+        raise ValueError('Manual source SHA-256 or size mismatch')
+    (directory / 'source-metadata.json').write_text(json.dumps(
+        {'origin': 'private GitHub draft for manual testing', 'source_sha256': digest.hexdigest()}), encoding='utf-8')
+    return digest.hexdigest()
 
 def record_of(api, release):
     with api.read_asset(asset(release, MANIFEST)) as response:
@@ -192,7 +223,11 @@ def main():
     api = GitHub(os.environ['GITHUB_REPOSITORY'], os.environ['GH_TOKEN'])
     api.assert_public()
     command = sys.argv[1]
-    if command == 'check':
+    if command == 'source':
+        digest = download_source(api, os.environ['SOURCE_RELEASE_TAG'])
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+            output.write('sha256=' + digest + '\n')
+    elif command == 'check':
         current = api.latest()
         changed = not current or record_of(api, current)['source_sha256'] != os.environ['SOURCE_SHA']
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
