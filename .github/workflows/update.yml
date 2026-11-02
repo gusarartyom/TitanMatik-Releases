@@ -1,0 +1,128 @@
+name: TitanMatik installer releases
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [candidate, stage, promote]
+        default: candidate
+      release_tag:
+        description: Existing staged tag for promotion; leave empty for candidate/stage
+        type: string
+  schedule:
+    - cron: '0 1 * * 1' # Monday 06:00 Asia/Qostanay (UTC+5)
+permissions:
+  contents: read
+concurrency:
+  group: titanmatik-release-publication
+  cancel-in-progress: false
+jobs:
+  build:
+    # Standard runners in PUBLIC repositories are free. Do not run this job in
+    # the private sales-bot repository. No Actions artifacts or caches are used.
+    if: >-
+      github.event.repository.private == false &&
+      ((github.event_name == 'workflow_dispatch' && inputs.mode != 'promote') ||
+       (github.event_name == 'schedule' && vars.TITANMATIK_PRODUCTION_ENABLED == 'true'))
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      PRODUCTION_ENABLED: ${{ vars.TITANMATIK_PRODUCTION_ENABLED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Authenticate Drive source reader
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.UPDATE_DRIVE_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+      - name: Download and fingerprint source
+        id: source
+        env:
+          DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          UPDATE_DRIVE_FILE_ID: ${{ secrets.UPDATE_DRIVE_FILE_ID }}
+        run: python update_pipeline/download.py
+      - name: Compare with last stable publication
+        id: compare
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha256 }}
+        run: python update_pipeline/github_release.py check
+      - name: Validate archive
+        if: steps.compare.outputs.changed == 'true'
+        run: python update_pipeline/archive.py build/source.zip build/payload build/manifest.json
+      - name: Scan source
+        if: steps.compare.outputs.changed == 'true'
+        run: ./update_pipeline/scan.ps1 -Target build/payload
+      - name: Generate installer file list
+        if: steps.compare.outputs.changed == 'true'
+        run: python update_pipeline/build_installer.py
+      - name: Compile installer
+        if: steps.compare.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Inno Setup compiler unavailable' }
+          & $compiler "/DBuildVersion=1.0.${{ github.run_number }}" installer/TitanMatik.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - name: Scan installer
+        if: steps.compare.outputs.changed == 'true'
+        run: ./update_pipeline/scan.ps1 -Target build/installer
+      - name: Test real installer without launching vendor executable
+        if: steps.compare.outputs.changed == 'true'
+        run: ./update_pipeline/smoke.ps1
+      - name: Save verified draft or stage/publish release
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          MODE: ${{ inputs.mode || 'auto' }}
+          UPDATE_BOT_TOKEN: ${{ secrets.UPDATE_BOT_TOKEN }}
+          UPDATE_CHANNEL_ID: ${{ vars.UPDATE_CHANNEL_ID }}
+        run: python update_pipeline/github_release.py prepare $env:MODE
+      - name: Finish unsent announcement for unchanged stable release
+        if: steps.compare.outputs.changed == 'false' && github.event_name == 'schedule'
+        env:
+          UPDATE_BOT_TOKEN: ${{ secrets.UPDATE_BOT_TOKEN }}
+          UPDATE_CHANNEL_ID: ${{ vars.UPDATE_CHANNEL_ID }}
+        run: python update_pipeline/github_release.py announce
+      - name: Notify administrator on failure
+        if: failure()
+        env:
+          UPDATE_BOT_TOKEN: ${{ secrets.UPDATE_BOT_TOKEN }}
+          UPDATE_ADMIN_CHAT_ID: ${{ secrets.UPDATE_ADMIN_CHAT_ID }}
+          FAILED_STAGE: 'Windows installer pipeline; see failed step in the linked run'
+        run: python update_pipeline/notify_failure.py
+  promote:
+    if: >-
+      github.event.repository.private == false && github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'promote' && vars.TITANMATIK_PRODUCTION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      PRODUCTION_ENABLED: ${{ vars.TITANMATIK_PRODUCTION_ENABLED }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      UPDATE_BOT_TOKEN: ${{ secrets.UPDATE_BOT_TOKEN }}
+      UPDATE_CHANNEL_ID: ${{ vars.UPDATE_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify and promote the existing staged bytes; do not rebuild
+        run: python update_pipeline/github_release.py promote
+      - name: Notify administrator on failure
+        if: failure()
+        env:
+          UPDATE_ADMIN_CHAT_ID: ${{ secrets.UPDATE_ADMIN_CHAT_ID }}
+          FAILED_STAGE: 'promotion or Telegram announcement'
+        run: python update_pipeline/notify_failure.py

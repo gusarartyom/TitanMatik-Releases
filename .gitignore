@@ -1,0 +1,9 @@
+build/
+.test-temp/
+__pycache__/
+.env
+.dev.vars
+gha-creds-*.json
+installer/payload.iss
+installer/rollback.iss
+installer/snapshot.iss

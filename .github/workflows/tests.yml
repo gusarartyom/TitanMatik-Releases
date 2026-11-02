@@ -1,0 +1,43 @@
+name: Free public installer tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    if: github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s update_pipeline/tests -v
+      - run: ./update_pipeline/tests/scan.tests.ps1
+      - name: Generate harmless installer fixture
+        shell: python
+        run: |
+          import zipfile
+          from pathlib import Path
+          Path('build').mkdir(exist_ok=True)
+          with zipfile.ZipFile('build/fixture.zip', 'w') as z:
+              z.writestr('HeroWarsBro.exe', b'MZ-safe-non-executable-test-fixture')
+              z.writestr('support.dll', b'MZ-safe-fixture')
+      - run: python update_pipeline/archive.py build/fixture.zip build/payload build/manifest.json
+      - run: python update_pipeline/build_installer.py
+      - name: Compile normal and fault-test installers
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $compiler installer/TitanMatik.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Compilation failed' }
+          & $compiler /DTestFault=1 /Obuild/fault installer/TitanMatik.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Fault fixture compilation failed' }
+          & $compiler /DTestBackupNextFailure=1 /Obuild/backup-failure installer/TitanMatik.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Backup fixture compilation failed' }
+          & $compiler /DTestFault=1 /DTestMissingBackup=1 /Obuild/missing-backup installer/TitanMatik.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Missing-backup fixture compilation failed' }
+      - run: ./update_pipeline/smoke.ps1 -FaultSetup build/fault/TitanMatik_Setup.exe -BackupFailureSetup build/backup-failure/TitanMatik_Setup.exe -MissingBackupSetup build/missing-backup/TitanMatik_Setup.exe
