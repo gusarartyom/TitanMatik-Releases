@@ -37,6 +37,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Enable and update Defender on the disposable build runner
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          Start-Service -Name WinDefend -ErrorAction Stop
+          Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
+          Set-MpPreference -DisableIOAVProtection $false -ErrorAction Stop
+          Update-MpSignature -ErrorAction Stop
+          $health = Get-MpComputerStatus -ErrorAction Stop
+          if (-not $health.AntivirusEnabled -or -not $health.RealTimeProtectionEnabled) { throw 'Build-runner Defender could not be enabled' }
       - name: Download and fingerprint source
         id: source
         env:
