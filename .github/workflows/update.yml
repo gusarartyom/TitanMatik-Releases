@@ -44,7 +44,21 @@ jobs:
           Start-Service -Name WinDefend -ErrorAction Stop
           Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
           Set-MpPreference -DisableIOAVProtection $false -ErrorAction Stop
-          Update-MpSignature -ErrorAction Stop
+          $health = $null
+          for ($attempt = 0; $attempt -lt 12; $attempt++) {
+            try {
+              $health = Get-MpComputerStatus -ErrorAction Stop
+              if ($health.AntivirusEnabled -and $health.RealTimeProtectionEnabled) { break }
+            } catch { Write-Output 'Waiting for build-runner Defender initialization' }
+            Start-Sleep -Seconds 5
+          }
+          $health | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureLastUpdated | Format-List
+          if (-not $health.AntivirusSignatureLastUpdated -or $health.AntivirusSignatureLastUpdated -lt (Get-Date).AddDays(-3)) {
+            for ($attempt = 0; $attempt -lt 3; $attempt++) {
+              try { Update-MpSignature -ErrorAction Stop; break }
+              catch { if ($attempt -eq 2) { throw }; Start-Sleep -Seconds 10 }
+            }
+          }
           $health = Get-MpComputerStatus -ErrorAction Stop
           if (-not $health.AntivirusEnabled -or -not $health.RealTimeProtectionEnabled) { throw 'Build-runner Defender could not be enabled' }
       - name: Download and fingerprint source
