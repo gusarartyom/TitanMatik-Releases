@@ -18,6 +18,13 @@ RestartApplications=no
 Uninstallable=no
 WizardStyle=modern
 SetupLogging=yes
+[Languages]
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+[Messages]
+russian.SelectDirDesc=Выберите папку TitanMatik
+russian.SelectDirLabel3=Для обновления укажите папку, где уже находится HeroWarsBro.exe. Установщик заменит файлы программы и сохранит ваши настройки и лицензию. Для первой установки можно оставить предложенную папку.
+[Run]
+Filename: "{app}\HeroWarsBro.exe"; Description: "Запустить TitanMatik"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 [Files]
 #include "payload.iss"
 [Icons]
