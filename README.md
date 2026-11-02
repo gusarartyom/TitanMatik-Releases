@@ -9,8 +9,6 @@ GitHub documents no release bandwidth limit and a 2 GiB limit per asset. Standar
 public-repository runners are free. This design avoids download-volume bills;
 GitHub may still rate-limit or suspend abuse. Downloads never trigger a workflow.
 
-## Publication
-
 ## Client updates
 
 The installer discovers an existing installation from the remembered path or
@@ -25,7 +23,10 @@ An in-application button requires application source code. No stable release mea
 the companion updater cannot download an update yet.
 
 Every scheduled or manual build downloads the current ZIP anew from the same
-Google Drive file ID through the official Drive API. No GitHub source draft,
+public Google Drive file ID without a Google account or service-account key.
+The standard large-file confirmation form is followed only for the ordinary
+size notice; access restrictions, malware/spam blocks and CAPTCHAs stop the run.
+Source filenames and URLs are omitted from release metadata and error logs. No GitHub source draft,
 checked-in ZIP, previous download or source cache is accepted. The downloaded
 content is hashed and compared with the last stable release; an unchanged address
 does not mean unchanged content. Replacing the ZIP contents in Drive while keeping
@@ -57,8 +58,7 @@ No payment/subscription is required for this design. Do not enable larger runner
 or add Actions artifact/cache upload steps. The workflow refuses a private repo.
 
 Actions repository secrets (never commit values or paste them into chat):
-- UPDATE_DRIVE_SERVICE_ACCOUNT_JSON: read-only access to the source Drive ZIP.
-- UPDATE_DRIVE_FILE_ID: the owner's source ZIP ID; it is not embedded in public code.
+- UPDATE_DRIVE_FILE_ID: public source file ID; kept in a secret to conceal the source URL.
 - UPDATE_BOT_TOKEN: Telegram bot used for notifications.
 - UPDATE_ADMIN_CHAT_ID: administrator's private chat ID.
 
@@ -82,7 +82,7 @@ supports candidate, stage and promotion of an exact existing release tag.
 Fixture tests cover installation, old-file replacement, user data, process refusal,
 real ACL denial, enumeration error, controlled rollback and missing-backup safety.
 Actual source access, real installer compatibility, test-channel delivery and the
-first real release remain unverified until credentials are configured and run.
+first real release remain unverified until the source ID and notification settings are configured and run.
 Power-loss/forced-termination recovery, GUI and another physical drive need separate
 acceptance. Do not switch buyer DOWNLOAD_URL until those release gates are satisfied.
 

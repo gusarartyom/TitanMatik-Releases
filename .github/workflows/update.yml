@@ -37,17 +37,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Authenticate Drive source reader
-        id: auth
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.UPDATE_DRIVE_SERVICE_ACCOUNT_JSON }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
       - name: Download and fingerprint source
         id: source
         env:
-          DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           UPDATE_DRIVE_FILE_ID: ${{ secrets.UPDATE_DRIVE_FILE_ID }}
         run: python update_pipeline/download.py
       - name: Compare with last stable publication
