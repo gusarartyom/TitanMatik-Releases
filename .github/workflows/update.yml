@@ -9,9 +9,6 @@ on:
       release_tag:
         description: Existing staged tag for promotion; leave empty for candidate/stage
         type: string
-      source_release:
-        description: Optional private draft source tag for a manual installer test; schedules always use Drive
-        type: string
   schedule:
     - cron: '0 1 * * 1' # Monday 06:00 Asia/Qostanay (UTC+5)
 permissions:
@@ -41,7 +38,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Authenticate Drive source reader
-        if: inputs.source_release == ''
         id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -49,22 +45,15 @@ jobs:
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/drive.readonly
       - name: Download and fingerprint source
-        if: inputs.source_release == ''
         id: source
         env:
           DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           UPDATE_DRIVE_FILE_ID: ${{ secrets.UPDATE_DRIVE_FILE_ID }}
         run: python update_pipeline/download.py
-      - name: Download already-approved ZIP from private draft for manual testing
-        if: github.event_name == 'workflow_dispatch' && inputs.source_release != ''
-        id: manual_source
-        env:
-          SOURCE_RELEASE_TAG: ${{ inputs.source_release }}
-        run: python update_pipeline/github_release.py source
       - name: Compare with last stable publication
         id: compare
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha256 || steps.manual_source.outputs.sha256 }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha256 }}
         run: python update_pipeline/github_release.py check
       - name: Validate archive
         if: steps.compare.outputs.changed == 'true'

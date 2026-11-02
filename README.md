@@ -11,7 +11,15 @@ GitHub may still rate-limit or suspend abuse. Downloads never trigger a workflow
 
 ## Publication
 
-The source ZIP is read through the official Drive API, hashed, safely unpacked,
+Every scheduled or manual build downloads the current ZIP anew from the same
+Google Drive file ID through the official Drive API. No GitHub source draft,
+checked-in ZIP, previous download or source cache is accepted. The downloaded
+content is hashed and compared with the last stable release; an unchanged address
+does not mean unchanged content. Replacing the ZIP contents in Drive while keeping
+the same file ID is supported. A different file ID requires updating the source
+configuration. Download failure stops the run and retains the previous release.
+
+The fresh ZIP is hashed, safely unpacked,
 Defender-scanned, compiled with Inno Setup, scanned again and installation-tested.
 The vendor executable is never launched in CI. User data is excluded/preserved.
 
