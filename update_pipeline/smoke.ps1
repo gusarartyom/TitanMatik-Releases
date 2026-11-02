@@ -16,6 +16,11 @@ function Install([switch]$AutoDetect) {
         throw "Installer failed: $($p.ExitCode)"
     }
 }
+# A headless update with no known installation must not silently create a copy.
+$unknownLog = Join-Path $env:RUNNER_TEMP ('TitanMatik-unknown-' + [guid]::NewGuid() + '.log')
+$unknown = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="'+$unknownLog+'"')) -Wait -PassThru -WindowStyle Hidden
+if ($unknown.ExitCode -ne 7) { throw 'Unknown installation did not require an explicit install/update choice' }
+if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'TitanMatik/HeroWarsBro.exe')) { throw 'Unknown installation created an unexpected second copy' }
 Install
 if (-not (Test-Path (Join-Path $target 'HeroWarsBro.exe'))) { throw 'Main executable missing' }
 $names = @('settings.json','license.token','license.attempts','crash.log','.hwlclk','.hwlljt','unknown-user-file.txt','Profiles/sentinel','Screenshots/sentinel','Diagnostics/sentinel')

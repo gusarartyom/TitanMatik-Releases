@@ -6,6 +6,9 @@ AppId={{973DB70F-DF7C-4CB7-9E9C-F28CD3468540}
 AppName=TitanMatik
 AppVersion={#BuildVersion}
 DefaultDirName={localappdata}\TitanMatik
+AppendDefaultDirName=no
+DefaultGroupName=TitanMatik
+DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 DisableDirPage=no
 DisableReadyPage=yes
@@ -39,6 +42,7 @@ var BackupPath: String; Completed: Boolean; Started: Boolean; Failed: Boolean;
     BackupComplete: Boolean; OriginallyAbsent: TArrayOfString;
     InstallCandidates: TStringList; ChooseInstall: TInputOptionWizardPage;
     AutoInstallFound: Boolean;
+    InstallIntent: TInputOptionWizardPage; LocateLegacy: Boolean;
 type
   TProcessEntry = record
     Size, Usage, ProcessId, DefaultHeapId, ModuleId, Threads, ParentProcessId: LongWord;
@@ -233,6 +237,13 @@ begin
       for Index := 0 to InstallCandidates.Count - 1 do
         ChooseInstall.Add(InstallCandidates[Index]);
       ChooseInstall.SelectedValueIndex := -1;
+    end else begin
+      InstallIntent := CreateInputOptionPage(wpWelcome, 'TitanMatik',
+        'Установленная программа не найдена автоматически',
+        'Для обновления старой версии выберите её существующую папку. Новая установка будет создана в стандартной папке пользователя.', True, False);
+      InstallIntent.Add('Обновить уже установленную программу');
+      InstallIntent.Add('Установить впервые');
+      InstallIntent.SelectedValueIndex := -1;
     end;
     if AutoInstallFound or (InstallCandidates.Count > 1) then begin
       WizardForm.NextButton.Caption := 'Обновить';
@@ -245,12 +256,28 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := (PageID = wpSelectDir) and (AutoInstallFound or
-    ((InstallCandidates <> nil) and (InstallCandidates.Count > 1)));
+    ((InstallCandidates <> nil) and (InstallCandidates.Count > 1)) or
+    ((InstallIntent <> nil) and not LocateLegacy));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  if (InstallIntent <> nil) and (CurPageID = InstallIntent.ID) then begin
+    Result := InstallIntent.SelectedValueIndex >= 0;
+    if not Result then begin
+      MsgBox('Выберите обновление существующей программы или первую установку.', mbInformation, MB_OK);
+      exit;
+    end;
+    LocateLegacy := InstallIntent.SelectedValueIndex = 0;
+    if LocateLegacy then WizardForm.DirEdit.Text := ''
+    else WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\TitanMatik');
+  end;
+  if (CurPageID = wpSelectDir) and LocateLegacy and
+    not ExistingInstallation(WizardDirValue) then begin
+    MsgBox('В выбранной папке программа не найдена. Выберите папку установленного TitanMatik. Новая копия создана не будет.', mbInformation, MB_OK);
+    Result := False;
+  end;
   if (ChooseInstall <> nil) and (CurPageID = ChooseInstall.ID) then begin
     Result := ChooseInstall.SelectedValueIndex >= 0;
     if Result then
@@ -341,6 +368,21 @@ begin
   BackupPath := '';
   SetArrayLength(OriginallyAbsent, 0);
   Log('PrepareToInstall entry');
+  if (InstallIntent <> nil) and (InstallIntent.SelectedValueIndex < 0) then begin
+    Result := 'Установка не найдена. Выберите обновление или первую установку в окне установщика.';
+    exit;
+  end;
+  if LocateLegacy and not ExistingInstallation(ExpandConstant('{app}')) then begin
+    Result := 'Существующая программа не найдена в выбранной папке. Создание второй копии отменено.';
+    exit;
+  end;
+  if (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdesktop}')) = 0) or
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdocs}')) = 0) or
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}\Downloads')) = 0) or
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}')) = 0) then begin
+    Result := 'Установка прямо в рабочий стол, загрузки или документы запрещена. Используйте отдельную папку программы.';
+    exit;
+  end;
   if (ExpandConstant('{param:DIR|}') = '') and (InstallCandidates.Count > 1) then
     if (ChooseInstall = nil) or (ChooseInstall.SelectedValueIndex < 0) then begin
       Result := 'Найдено несколько копий TitanMatik. Выберите обновляемую копию в окне установщика.';
