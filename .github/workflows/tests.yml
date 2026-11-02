@@ -17,6 +17,7 @@ jobs:
           python-version: '3.12'
       - run: python -m unittest discover -s update_pipeline/tests -v
       - run: ./update_pipeline/tests/scan.tests.ps1
+      - run: ./update_pipeline/tests/updater.tests.ps1
       - name: Generate harmless installer fixture
         shell: python
         run: |

@@ -1,11 +1,16 @@
 param([string]$FaultSetup = '', [string]$BackupFailureSetup = '', [string]$MissingBackupSetup = '')
 $ErrorActionPreference = 'Stop'
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
+    throw 'This smoke suite may run only on a disposable GitHub-hosted Windows runner'
+}
 $setup = (Resolve-Path 'build/installer/TitanMatik_Setup.exe').Path
 $target = Join-Path $env:RUNNER_TEMP ('TitanMatik-test-' + [guid]::NewGuid())
-function Install {
+function Install([switch]$AutoDetect) {
     $log = Join-Path $env:RUNNER_TEMP ('TitanMatik-setup-' + [guid]::NewGuid() + '.log')
     $script:LastInstallerLog = $log
-    $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="' + $log + '"'),('/DIR="' + $target + '"')) -Wait -PassThru -WindowStyle Hidden
+    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="' + $log + '"'))
+    if (-not $AutoDetect) { $arguments += ('/DIR="' + $target + '"') }
+    $p = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
     if ($p.ExitCode -ne 0) {
         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 80 }
         throw "Installer failed: $($p.ExitCode)"
@@ -20,6 +25,21 @@ foreach ($name in $names) {
     [IO.File]::WriteAllText($path, 'preserve-' + $name)
 }
 New-Item -ItemType Directory -Path (Join-Path $target 'empty-user-directory') | Out-Null
+Start-Sleep -Seconds 1
+Install -AutoDetect
+# Disposable hosted runner only: simulate a ZIP install with a shortcut but no
+# remembered path. Restore the test path even if discovery fails.
+$testSavedPath = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\TitanMatik' -Name InstallDir
+try {
+    Remove-ItemProperty -LiteralPath 'HKCU:\Software\TitanMatik' -Name InstallDir
+    Start-Sleep -Seconds 1
+    Install -AutoDetect
+} finally {
+    Set-ItemProperty -LiteralPath 'HKCU:\Software\TitanMatik' -Name InstallDir -Value $testSavedPath
+}
+foreach ($name in $names) {
+    if ([IO.File]::ReadAllText((Join-Path $target $name)) -cne ('preserve-' + $name)) { throw 'Automatic discovery changed user data' }
+}
 
 function Assert-BackupRefused([string]$ReasonPattern) {
     Start-Sleep -Seconds 1

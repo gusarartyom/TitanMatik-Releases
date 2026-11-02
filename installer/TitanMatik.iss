@@ -8,6 +8,7 @@ AppVersion={#BuildVersion}
 DefaultDirName={localappdata}\TitanMatik
 PrivilegesRequired=lowest
 DisableDirPage=no
+DisableReadyPage=yes
 UsePreviousAppDir=yes
 OutputDir=..\build\installer
 OutputBaseFilename=TitanMatik_Setup
@@ -30,11 +31,14 @@ Filename: "{app}\HeroWarsBro.exe"; Description: "Запустить TitanMatik";
 [Icons]
 Name: "{userdesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"
 Name: "{userprograms}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"
+Name: "{userdesktop}\Обновить TitanMatik"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\TitanMatik.Update.ps1"""; WorkingDir: "{app}"
 [Registry]
 Root: HKCU; Subkey: "Software\TitanMatik"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 [Code]
 var BackupPath: String; Completed: Boolean; Started: Boolean; Failed: Boolean;
     BackupComplete: Boolean; OriginallyAbsent: TArrayOfString;
+    InstallCandidates: TStringList; ChooseInstall: TInputOptionWizardPage;
+    AutoInstallFound: Boolean;
 type
   TProcessEntry = record
     Size, Usage, ProcessId, DefaultHeapId, ModuleId, Threads, ParentProcessId: LongWord;
@@ -125,7 +129,13 @@ begin
     RaiseException('TITANMATIK_TEST_FAULT');
   end;
   #endif
-  if CurStep = ssDone then Completed := not Failed;
+  if CurStep = ssDone then begin
+    Completed := not Failed;
+    if Completed then
+      if not SaveStringToFile(ExpandConstant('{app}\.titanmatik-installed.sha256'),
+        GetSHA256OfFile(ExpandConstant('{srcexe}')), False) then
+        Log('Unable to save installed update identity');
+  end;
 end;
 
 function GetCustomSetupExitCode(): Integer;
@@ -148,14 +158,105 @@ begin
   Result := True;
 end;
 
+function ExistingInstallation(Directory: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Directory) + 'HeroWarsBro.exe') and
+    FileExists(AddBackslash(Directory) + 'e_sqlite3.dll') and
+    FileExists(AddBackslash(Directory) + 'WebView2Loader.dll');
+end;
+
+procedure AddInstallation(Directory: String);
+begin
+  Directory := RemoveBackslashUnlessRoot(ExpandFileName(Directory));
+  if ExistingInstallation(Directory) and (InstallCandidates.IndexOf(Directory) < 0) then
+    InstallCandidates.Add(Directory);
+end;
+
+procedure FindShortcutInstallations(Directory: String; Depth: Integer);
+var Found: TFindRec; Shell, Link: Variant; Target: String;
+begin
+  if (Depth > 4) or not DirExists(Directory) then exit;
+  if FindFirst(AddBackslash(Directory) + '*', Found) then begin
+    try
+      repeat
+        if (Found.Name <> '.') and (Found.Name <> '..') and
+          ((Found.Attributes and $400) = 0) then begin
+          if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            FindShortcutInstallations(AddBackslash(Directory) + Found.Name, Depth + 1)
+          else if CompareText(ExtractFileExt(Found.Name), '.lnk') = 0 then begin
+            try
+              Shell := CreateOleObject('WScript.Shell');
+              Link := Shell.CreateShortcut(AddBackslash(Directory) + Found.Name);
+              Target := Link.TargetPath;
+              if CompareText(ExtractFileName(Target), 'HeroWarsBro.exe') = 0 then
+                AddInstallation(ExtractFileDir(Target));
+            except
+              Log('Unable to inspect an application shortcut');
+            end;
+          end;
+        end;
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+end;
+
 procedure InitializeWizard();
-var Saved: String;
+var Saved: String; Index: Integer;
 begin
   Log('InitializeWizard entry');
-  if ExpandConstant('{param:DIR|}') = '' then
-    if RegQueryStringValue(HKCU, 'Software\TitanMatik', 'InstallDir', Saved) then
-      WizardForm.DirEdit.Text := Saved;
+  AutoInstallFound := False;
+  InstallCandidates := TStringList.Create;
+  InstallCandidates.CaseSensitive := False;
+  if ExpandConstant('{param:DIR|}') = '' then begin
+    if RegQueryStringValue(HKCU, 'Software\TitanMatik', 'InstallDir', Saved) and
+      ExistingInstallation(Saved) then begin
+      AddInstallation(Saved);
+    end else begin
+      AddInstallation(ExpandConstant('{src}'));
+      FindShortcutInstallations(ExpandConstant('{userdesktop}'), 0);
+      FindShortcutInstallations(ExpandConstant('{userprograms}'), 0);
+      FindShortcutInstallations(ExpandConstant('{commondesktop}'), 0);
+      FindShortcutInstallations(ExpandConstant('{commonprograms}'), 0);
+      AddInstallation(ExpandConstant('{localappdata}\TitanMatik'));
+      AddInstallation(ExpandConstant('{sd}\Games\HeroWars'));
+      AddInstallation(ExpandConstant('{sd}\HeroWars'));
+    end;
+    if InstallCandidates.Count = 1 then begin
+      WizardForm.DirEdit.Text := InstallCandidates[0];
+      AutoInstallFound := True;
+    end else if InstallCandidates.Count > 1 then begin
+      ChooseInstall := CreateInputOptionPage(wpWelcome, 'Обновление TitanMatik',
+        'Найдено несколько установленных копий',
+        'Выберите копию для обновления. Настройки и лицензия останутся в её папке.', True, False);
+      for Index := 0 to InstallCandidates.Count - 1 do
+        ChooseInstall.Add(InstallCandidates[Index]);
+      ChooseInstall.SelectedValueIndex := -1;
+    end;
+    if AutoInstallFound or (InstallCandidates.Count > 1) then begin
+      WizardForm.NextButton.Caption := 'Обновить';
+      WizardForm.FinishedHeadingLabel.Caption := 'TitanMatik обновлён';
+    end;
+  end;
   Log('InitializeWizard complete');
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = wpSelectDir) and (AutoInstallFound or
+    ((InstallCandidates <> nil) and (InstallCandidates.Count > 1)));
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (ChooseInstall <> nil) and (CurPageID = ChooseInstall.ID) then begin
+    Result := ChooseInstall.SelectedValueIndex >= 0;
+    if Result then
+      WizardForm.DirEdit.Text := InstallCandidates[ChooseInstall.SelectedValueIndex]
+    else MsgBox('Выберите копию программы для обновления.', mbInformation, MB_OK);
+  end;
 end;
 
 function Running(): Boolean;
@@ -240,6 +341,15 @@ begin
   BackupPath := '';
   SetArrayLength(OriginallyAbsent, 0);
   Log('PrepareToInstall entry');
+  if (ExpandConstant('{param:DIR|}') = '') and (InstallCandidates.Count > 1) then
+    if (ChooseInstall = nil) or (ChooseInstall.SelectedValueIndex < 0) then begin
+      Result := 'Найдено несколько копий TitanMatik. Выберите обновляемую копию в окне установщика.';
+      exit;
+    end;
+  if AutoInstallFound and not ExistingInstallation(ExpandConstant('{app}')) then begin
+    Result := 'Найденная установка изменилась. Запустите обновление повторно.';
+    exit;
+  end;
   if Length(RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <= 3 then begin
     Result := 'Выберите отдельную папку TitanMatik, а не корень диска.';
     exit;

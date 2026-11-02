@@ -62,7 +62,7 @@ def inspect(source, destination):
             data = z.read(i)
             if relative.split('/')[0].casefold() in PROTECTED:
                 continue
-            if relative.casefold() in ('unins000.exe', 'unins000.dat') or relative.startswith('.titanmatik'):
+            if relative.casefold() in ('unins000.exe', 'unins000.dat', 'titanmatik.update.ps1') or relative.casefold().startswith('.titanmatik'):
                 raise ValueError('Reserved installer path')
             target = destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)

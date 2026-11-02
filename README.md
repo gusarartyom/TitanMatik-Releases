@@ -11,6 +11,19 @@ GitHub may still rate-limit or suspend abuse. Downloads never trigger a workflow
 
 ## Publication
 
+## Client updates
+
+The installer discovers an existing installation from the remembered path or
+application shortcuts, skipping the directory picker when exactly one is found.
+Multiple candidates require an explicit choice; unidentified old ZIP installations
+still require locating the folder once. The installed desktop shortcut for updating
+runs a companion script in the application directory. It checks the latest stable
+release, skips the installed installer hash, verifies the downloaded SHA-256 and
+updates that exact directory with progress, without launching vendor code silently.
+It asks the user to close a running application and does not terminate it.
+An in-application button requires application source code. No stable release means
+the companion updater cannot download an update yet.
+
 Every scheduled or manual build downloads the current ZIP anew from the same
 Google Drive file ID through the official Drive API. No GitHub source draft,
 checked-in ZIP, previous download or source cache is accepted. The downloaded
