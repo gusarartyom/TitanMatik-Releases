@@ -64,6 +64,11 @@ class GitHubReleaseTests(unittest.TestCase):
         release=self.prepare('candidate')
         self.assertTrue(release['draft']); self.assertIsNone(self.api.latest())
         self.assertEqual(self.api.public_checks,0)
+    def test_update_link_contains_same_verified_installer(self):
+        release=self.prepare()
+        with self.api.read_asset(gh.asset(release,gh.UPDATE)) as stream:
+            self.assertEqual(stream.read(),self.setup.read_bytes())
+        self.assertEqual(gh.record_of(self.api,release)['packaging_sha256'],gh.packaging_sha256())
     def test_unpublished_draft_found_when_tag_endpoint_returns_404(self):
         api=gh.GitHub('owner/repo','test-token')
         tag='tm-'+'a'*64+'-'+'b'*64

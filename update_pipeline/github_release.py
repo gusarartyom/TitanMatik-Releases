@@ -9,8 +9,10 @@ import urllib.request
 from pathlib import Path
 from archive import sha256
 from telegram_notify import send_message
+from packaging_identity import packaging_sha256
 
 SETUP = 'TitanMatik_Setup.exe'
+UPDATE = 'TitanMatik_Update.exe'
 MANIFEST = 'TitanMatik_manifest.json'
 TAG = re.compile(r'tm-[a-f0-9]{64}-[a-f0-9]{64}')
 MARKER = re.compile(r'<!-- titanmatik-notification: (.*?) -->')
@@ -135,13 +137,15 @@ def prepare(api, manifest, installer, mode):
     digest = sha256(installer)
     source = manifest['source_sha256']
     tag = 'tm-' + source + '-' + digest
-    record = dict(manifest, installer_sha256=digest, run_url=os.environ['RUN_URL'])
+    record = dict(manifest, installer_sha256=digest, packaging_sha256=packaging_sha256(), run_url=os.environ['RUN_URL'])
     release = api.by_tag(tag)
     if not release:
         release = api.create(tag, 'Проверенная сборка установщика TitanMatik.\n\n'
                              'Source SHA-256: ' + source + '\nInstaller SHA-256: ' + digest +
                              '\nBuild: ' + os.environ['RUN_URL'])
-    required = {SETUP: Path(installer).read_bytes(), MANIFEST: json.dumps(record, indent=2).encode(),
+    # Both entry links use the same verified installer: it discovers and updates
+    # an existing installation; a first installation remains an explicit choice.
+    required = {SETUP: Path(installer).read_bytes(), UPDATE: Path(installer).read_bytes(), MANIFEST: json.dumps(record, indent=2).encode(),
                 'SHA256SUMS': (digest + '  ' + SETUP + '\n').encode()}
     # Resume a partial draft without deleting/replacing immutable uploaded assets.
     for name, data in required.items():
@@ -152,6 +156,9 @@ def prepare(api, manifest, installer, mode):
     if stored['source_sha256'] != source or stored['installer_sha256'] != digest:
         raise ValueError('Release identity collision')
     verify_asset(api, release, digest)
+    with api.read_asset(asset(release, UPDATE)) as response:
+        if hashlib.file_digest(response, 'sha256').hexdigest() != digest:
+            raise ValueError('Uploaded update failed SHA-256 verification')
     if mode == 'stage':
         if release['draft']:
             release = api.patch(release, draft=False, prerelease=True, make_latest='false')
@@ -192,11 +199,12 @@ def announce(api, release):
     # automatically repeat ambiguous delivery. No extra database/storage is used.
     sending = '<!-- titanmatik-notification: {"status":"sending"} -->'
     api.patch(release, body=body + '\n' + sending)
-    url = 'https://github.com/' + api.repo + '/releases/latest/download/' + SETUP
+    url = 'https://github.com/' + api.repo + '/releases/latest/download/' + UPDATE
     message_id = send_message(os.environ['UPDATE_CHANNEL_ID'],
         '🔄 Обновление TitanMatik\n\nВышла новая версия программы.\n\n'
         'Как обновиться:\n1. Закройте TitanMatik.\n2. Скачайте установщик.\n'
-        '3. Выберите папку существующей установки.\n\n'
+        '3. Подтвердите обновление найденной программы. Если она не найдена, укажите её папку.\n\n'
+        'Установлен логотип TitanMatik и один ярлык на рабочем столе.\n\n'
         'Профили, настройки и лицензия сохраняются при корректном обновлении.\n\nСкачать: ' + url)
     sent = '<!-- titanmatik-notification: ' + json.dumps({'status': 'sent', 'message_id': message_id}) + ' -->'
     api.patch(release, body=body + '\n' + sent)
@@ -208,7 +216,9 @@ def main():
     command = sys.argv[1]
     if command == 'check':
         current = api.latest()
-        changed = not current or record_of(api, current)['source_sha256'] != os.environ['SOURCE_SHA']
+        record = record_of(api, current) if current else {}
+        changed = (record.get('source_sha256') != os.environ['SOURCE_SHA'] or
+                   record.get('packaging_sha256') != packaging_sha256())
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
             output.write('changed=' + str(changed).lower() + '\n')
     elif command == 'prepare':
@@ -219,9 +229,13 @@ def main():
         release = prepare(api, manifest, 'build/installer/' + SETUP, 'stage' if mode == 'auto' else mode)
         print('Verified release tag: ' + release['tag_name'])
         if mode == 'auto':
-            announce(api, promote(api, release['tag_name']))
+            published = promote(api, release['tag_name'])
+            if os.environ.get('ANNOUNCEMENTS_ENABLED') == 'true':
+                announce(api, published)
     elif command == 'promote':
-        announce(api, promote(api, os.environ['RELEASE_TAG']))
+        published = promote(api, os.environ['RELEASE_TAG'])
+        if os.environ.get('ANNOUNCEMENTS_ENABLED') == 'true':
+            announce(api, published)
     elif command == 'announce':
         if os.environ.get('PRODUCTION_ENABLED') != 'true':
             raise ValueError('Production release gate is closed')

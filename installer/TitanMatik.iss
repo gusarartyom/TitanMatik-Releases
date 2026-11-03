@@ -4,6 +4,7 @@
 [Setup]
 AppId={{973DB70F-DF7C-4CB7-9E9C-F28CD3468540}
 AppName=TitanMatik
+SetupIconFile=TitanMatik.ico
 AppVersion={#BuildVersion}
 DefaultDirName={localappdata}\TitanMatik
 AppendDefaultDirName=no
@@ -32,9 +33,8 @@ Filename: "{app}\HeroWarsBro.exe"; Description: "Запустить TitanMatik";
 [Files]
 #include "payload.iss"
 [Icons]
-Name: "{userdesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"
-Name: "{userprograms}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"
-Name: "{userdesktop}\Обновить TitanMatik"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\TitanMatik.Update.ps1"""; WorkingDir: "{app}"
+Name: "{userdesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"
+Name: "{userprograms}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"
 [Registry]
 Root: HKCU; Subkey: "Software\TitanMatik"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
 [Code]
@@ -121,6 +121,38 @@ begin
   end;
 end;
 
+procedure RemoveDuplicateDesktopLinks(Directory: String);
+var Found: TFindRec; Shell, Link: Variant; Path, Target, Args, CopyPath: String;
+begin
+  if not FindFirst(AddBackslash(Directory) + '*.lnk', Found) then exit;
+  try
+    repeat
+      if CompareText(Found.Name, 'TitanMatik.lnk') <> 0 then begin
+        Path := AddBackslash(Directory) + Found.Name;
+        try
+          Shell := CreateOleObject('WScript.Shell');
+          { WScript shortcut filenames are limited by the Windows ANSI code page.
+            Inspect a temporary ASCII filename; delete only the verified original. }
+          CopyPath := ExpandConstant('{tmp}\inspect-shortcut.lnk');
+          if not FileCopy(Path, CopyPath, False) then RaiseException('Cannot read shortcut');
+          Link := Shell.CreateShortcut(GetShortName(CopyPath));
+          Target := Link.TargetPath;
+          Args := Link.Arguments;
+          if (CompareText(Target, ExpandConstant('{app}\HeroWarsBro.exe')) = 0) or
+            ((CompareText(ExtractFileName(Target), 'powershell.exe') = 0) and
+             (CompareText(Found.Name, 'Обновить TitanMatik.lnk') = 0) and
+             (Pos(Lowercase(ExpandConstant('{app}\TitanMatik.Update.ps1')), Lowercase(Args)) > 0)) then
+            if not DeleteFile(Path) then Log('Unable to remove old application shortcut: ' + Path);
+        except
+          Log('Unable to inspect old application shortcut: ' + Path);
+        end;
+      end;
+    until not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then Started := True;
@@ -135,6 +167,10 @@ begin
   #endif
   if CurStep = ssDone then begin
     Completed := not Failed;
+    if Completed then begin
+      RemoveDuplicateDesktopLinks(ExpandConstant('{userdesktop}'));
+      RemoveDuplicateDesktopLinks(ExpandConstant('{commondesktop}'));
+    end;
     if Completed then
       if not SaveStringToFile(ExpandConstant('{app}\.titanmatik-installed.sha256'),
         GetSHA256OfFile(ExpandConstant('{srcexe}')), False) then
@@ -177,7 +213,7 @@ begin
 end;
 
 procedure FindShortcutInstallations(Directory: String; Depth: Integer);
-var Found: TFindRec; Shell, Link: Variant; Target: String;
+var Found: TFindRec; Shell, Link: Variant; Target, CopyPath: String;
 begin
   if (Depth > 4) or not DirExists(Directory) then exit;
   if FindFirst(AddBackslash(Directory) + '*', Found) then begin
@@ -190,7 +226,10 @@ begin
           else if CompareText(ExtractFileExt(Found.Name), '.lnk') = 0 then begin
             try
               Shell := CreateOleObject('WScript.Shell');
-              Link := Shell.CreateShortcut(AddBackslash(Directory) + Found.Name);
+              CopyPath := ExpandConstant('{tmp}\inspect-shortcut.lnk');
+              if not FileCopy(AddBackslash(Directory) + Found.Name, CopyPath, False) then
+                RaiseException('Cannot read shortcut');
+              Link := Shell.CreateShortcut(GetShortName(CopyPath));
               Target := Link.TargetPath;
               if CompareText(ExtractFileName(Target), 'HeroWarsBro.exe') = 0 then
                 AddInstallation(ExtractFileDir(Target));
@@ -263,6 +302,9 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  { Silent installations cannot answer custom pages. PrepareToInstall below
+    rejects missing/ambiguous choices without displaying a blocking MsgBox. }
+  if WizardSilent then exit;
   if (InstallIntent <> nil) and (CurPageID = InstallIntent.ID) then begin
     Result := InstallIntent.SelectedValueIndex >= 0;
     if not Result then begin
@@ -378,8 +420,8 @@ begin
   end;
   if (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdesktop}')) = 0) or
      (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdocs}')) = 0) or
-     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}\Downloads')) = 0) or
-     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}')) = 0) then begin
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{%USERPROFILE}\Downloads')) = 0) or
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{%USERPROFILE}')) = 0) then begin
     Result := 'Установка прямо в рабочий стол, загрузки или документы запрещена. Используйте отдельную папку программы.';
     exit;
   end;
