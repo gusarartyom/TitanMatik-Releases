@@ -41,9 +41,11 @@ if ((Get-FileHash -LiteralPath (Join-Path $target 'TitanMatik.ico')).Hash -ne (G
 foreach ($name in @('HeroWarsBro.lnk','Old TitanMatik.lnk')) {
     $old = $shell.CreateShortcut((Join-Path $desktop $name)); $old.TargetPath=Join-Path $target 'HeroWarsBro.exe'; $old.Save()
 }
-$old = $shell.CreateShortcut((Join-Path $desktop 'Обновить TitanMatik.lnk'))
+$oldUpdateLink = Join-Path $desktop 'Legacy updater fixture.lnk'
+$old = $shell.CreateShortcut($oldUpdateLink)
 $old.TargetPath = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $old.Arguments = '-NoProfile -File "' + (Join-Path $target 'TitanMatik.Update.ps1') + '"'; $old.Save()
+Move-Item -LiteralPath $oldUpdateLink -Destination (Join-Path $desktop 'Обновить TitanMatik.lnk')
 $unrelated = Join-Path $desktop 'Unrelated application.lnk'
 $old = $shell.CreateShortcut($unrelated); $old.TargetPath=Join-Path $env:SystemRoot 'notepad.exe'; $old.Save()
 $names = @('settings.json','license.token','license.attempts','crash.log','.hwlclk','.hwlljt','unknown-user-file.txt','Profiles/sentinel','Screenshots/sentinel','Diagnostics/sentinel')

@@ -122,7 +122,7 @@ begin
 end;
 
 procedure RemoveDuplicateDesktopLinks(Directory: String);
-var Found: TFindRec; Shell, Link: Variant; Path, Target, Args: String;
+var Found: TFindRec; Shell, Link: Variant; Path, Target, Args, CopyPath: String;
 begin
   if not FindFirst(AddBackslash(Directory) + '*.lnk', Found) then exit;
   try
@@ -131,7 +131,11 @@ begin
         Path := AddBackslash(Directory) + Found.Name;
         try
           Shell := CreateOleObject('WScript.Shell');
-          Link := Shell.CreateShortcut(Path);
+          { WScript shortcut filenames are limited by the Windows ANSI code page.
+            Inspect a temporary ASCII filename; delete only the verified original. }
+          CopyPath := ExpandConstant('{tmp}\inspect-shortcut.lnk');
+          if not FileCopy(Path, CopyPath, False) then RaiseException('Cannot read shortcut');
+          Link := Shell.CreateShortcut(GetShortName(CopyPath));
           Target := Link.TargetPath;
           Args := Link.Arguments;
           if (CompareText(Target, ExpandConstant('{app}\HeroWarsBro.exe')) = 0) or
@@ -209,7 +213,7 @@ begin
 end;
 
 procedure FindShortcutInstallations(Directory: String; Depth: Integer);
-var Found: TFindRec; Shell, Link: Variant; Target: String;
+var Found: TFindRec; Shell, Link: Variant; Target, CopyPath: String;
 begin
   if (Depth > 4) or not DirExists(Directory) then exit;
   if FindFirst(AddBackslash(Directory) + '*', Found) then begin
@@ -222,7 +226,10 @@ begin
           else if CompareText(ExtractFileExt(Found.Name), '.lnk') = 0 then begin
             try
               Shell := CreateOleObject('WScript.Shell');
-              Link := Shell.CreateShortcut(AddBackslash(Directory) + Found.Name);
+              CopyPath := ExpandConstant('{tmp}\inspect-shortcut.lnk');
+              if not FileCopy(AddBackslash(Directory) + Found.Name, CopyPath, False) then
+                RaiseException('Cannot read shortcut');
+              Link := Shell.CreateShortcut(GetShortName(CopyPath));
               Target := Link.TargetPath;
               if CompareText(ExtractFileName(Target), 'HeroWarsBro.exe') = 0 then
                 AddInstallation(ExtractFileDir(Target));
