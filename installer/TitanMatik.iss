@@ -33,7 +33,8 @@ Filename: "{app}\HeroWarsBro.exe"; Description: "Запустить TitanMatik";
 [Files]
 #include "payload.iss"
 [Icons]
-Name: "{userdesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"
+Name: "{userdesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"; Check: not UseCommonDesktopShortcut
+Name: "{commondesktop}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"; Check: UseCommonDesktopShortcut
 Name: "{userprograms}\TitanMatik"; Filename: "{app}\HeroWarsBro.exe"; WorkingDir: "{app}"; IconFilename: "{app}\TitanMatik.ico"
 [Registry]
 Root: HKCU; Subkey: "Software\TitanMatik"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
@@ -73,6 +74,25 @@ function Process32Next(Handle: LongWord; var Entry: TProcessEntry): Boolean;
   external 'Process32NextW@kernel32.dll stdcall';
 function CloseHandle(Handle: LongWord): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
+function OpenShortcutForWrite(Name: String; Access, Share, Security, Creation, Flags, Template: LongWord): LongWord;
+  external 'CreateFileW@kernel32.dll stdcall';
+
+function UseCommonDesktopShortcut(): Boolean;
+var Path, CopyPath: String; Shell, Link: Variant;
+begin
+  Result := False;
+  Path := ExpandConstant('{commondesktop}\TitanMatik.lnk');
+  if not FileExists(Path) then exit;
+  try
+    CopyPath := ExpandConstant('{tmp}\common-shortcut.lnk');
+    if not FileCopy(Path, CopyPath, False) then exit;
+    Shell := CreateOleObject('WScript.Shell');
+    Link := Shell.CreateShortcut(GetShortName(CopyPath));
+    Result := CompareText(Link.TargetPath, ExpandConstant('{app}\HeroWarsBro.exe')) = 0;
+  except
+    Log('Unable to inspect the common desktop shortcut');
+  end;
+end;
 
 procedure RememberOriginal(Relative: String);
 var Attr: LongWord; ErrorCode, Count: Integer;
@@ -127,7 +147,8 @@ begin
   if not FindFirst(AddBackslash(Directory) + '*.lnk', Found) then exit;
   try
     repeat
-      if CompareText(Found.Name, 'TitanMatik.lnk') <> 0 then begin
+      if (CompareText(Found.Name, 'TitanMatik.lnk') <> 0) or
+        ((CompareText(Directory, ExpandConstant('{userdesktop}')) = 0) and UseCommonDesktopShortcut) then begin
         Path := AddBackslash(Directory) + Found.Name;
         try
           Shell := CreateOleObject('WScript.Shell');
@@ -256,7 +277,7 @@ begin
     if RegQueryStringValue(HKCU, 'Software\TitanMatik', 'InstallDir', Saved) and
       ExistingInstallation(Saved) then begin
       AddInstallation(Saved);
-    end else begin
+    end;
       AddInstallation(ExpandConstant('{src}'));
       FindShortcutInstallations(ExpandConstant('{userdesktop}'), 0);
       FindShortcutInstallations(ExpandConstant('{userprograms}'), 0);
@@ -265,7 +286,6 @@ begin
       AddInstallation(ExpandConstant('{localappdata}\TitanMatik'));
       AddInstallation(ExpandConstant('{sd}\Games\HeroWars'));
       AddInstallation(ExpandConstant('{sd}\HeroWars'));
-    end;
     if InstallCandidates.Count = 1 then begin
       WizardForm.DirEdit.Text := InstallCandidates[0];
       AutoInstallFound := True;
@@ -403,7 +423,7 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var Backup: String;
+var Backup: String; ShortcutHandle: LongWord;
 begin
   Result := '';
   BackupComplete := False;
@@ -441,6 +461,15 @@ begin
   if Running() then begin
     Result := 'Закройте HeroWarsBro.exe (TitanMatik) и повторите установку.';
     exit;
+  end;
+  if UseCommonDesktopShortcut then begin
+    ShortcutHandle := OpenShortcutForWrite(ExpandConstant('{commondesktop}\TitanMatik.lnk'),
+      $40000000, 7, 0, 3, $80, 0);
+    if ShortcutHandle = $FFFFFFFF then begin
+      Result := 'Существующий ярлык TitanMatik находится на общем рабочем столе. Для его обновления запустите установщик от имени администратора. Файлы программы пока не изменены.';
+      exit;
+    end;
+    CloseHandle(ShortcutHandle);
   end;
   #include "snapshot.iss"
   if DirExists(ExpandConstant('{app}')) then begin
