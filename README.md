@@ -46,8 +46,8 @@ Repository secrets:
 - UPDATE_BOT_TOKEN and UPDATE_ADMIN_CHAT_ID: existing failure notification settings.
 
 Optional variables:
-- TITANMATIK_ANNOUNCEMENTS_ENABLED=true and UPDATE_CHANNEL_ID explicitly enable
-  automatic channel posts. Otherwise builds publish files without posting to a channel.
+- Builds publish files without posting to a channel. Channel posts are a separate
+  user action; no automatic channel announcement is enabled by this workflow.
 - TITANMATIK_PRODUCTION_ENABLED=true permits the separate manual promotion job.
   Main-branch and scheduled builds publish automatically after their checks.
 
