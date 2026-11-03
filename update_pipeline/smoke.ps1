@@ -23,6 +23,20 @@ if ($unknown.ExitCode -ne 7) { throw 'Unknown installation did not require an ex
 if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'TitanMatik/HeroWarsBro.exe')) { throw 'Unknown installation created an unexpected second copy' }
 Install
 if (-not (Test-Path (Join-Path $target 'HeroWarsBro.exe'))) { throw 'Main executable missing' }
+$shell = New-Object -ComObject WScript.Shell
+$desktop = [Environment]::GetFolderPath('Desktop')
+$mainLink = Join-Path $desktop 'TitanMatik.lnk'
+$link = $shell.CreateShortcut($mainLink)
+if ($link.TargetPath -ne (Join-Path $target 'HeroWarsBro.exe') -or $link.IconLocation -notlike ((Join-Path $target 'TitanMatik.ico') + '*')) { throw 'Shortcut target or TitanMatik logo missing' }
+if ((Get-FileHash -LiteralPath (Join-Path $target 'TitanMatik.ico')).Hash -ne (Get-FileHash -LiteralPath 'installer/TitanMatik.ico').Hash) { throw 'Installed logo differs' }
+foreach ($name in @('HeroWarsBro.lnk','Old TitanMatik.lnk')) {
+    $old = $shell.CreateShortcut((Join-Path $desktop $name)); $old.TargetPath=Join-Path $target 'HeroWarsBro.exe'; $old.Save()
+}
+$old = $shell.CreateShortcut((Join-Path $desktop 'Обновить TitanMatik.lnk'))
+$old.TargetPath = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+$old.Arguments = '-NoProfile -File "' + (Join-Path $target 'TitanMatik.Update.ps1') + '"'; $old.Save()
+$unrelated = Join-Path $desktop 'Unrelated application.lnk'
+$old = $shell.CreateShortcut($unrelated); $old.TargetPath=Join-Path $env:SystemRoot 'notepad.exe'; $old.Save()
 $names = @('settings.json','license.token','license.attempts','crash.log','.hwlclk','.hwlljt','unknown-user-file.txt','Profiles/sentinel','Screenshots/sentinel','Diagnostics/sentinel')
 foreach ($name in $names) {
     $path = Join-Path $target $name
@@ -32,6 +46,10 @@ foreach ($name in $names) {
 New-Item -ItemType Directory -Path (Join-Path $target 'empty-user-directory') | Out-Null
 Start-Sleep -Seconds 1
 Install -AutoDetect
+foreach ($name in @('HeroWarsBro.lnk','Old TitanMatik.lnk','Обновить TitanMatik.lnk')) {
+    if (Test-Path -LiteralPath (Join-Path $desktop $name)) { throw 'Duplicate desktop shortcut remains' }
+}
+if (-not (Test-Path -LiteralPath $unrelated)) { throw 'Unrelated desktop shortcut was removed' }
 # Disposable hosted runner only: simulate a ZIP install with a shortcut but no
 # remembered path. Restore the test path even if discovery fails.
 $testSavedPath = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\TitanMatik' -Name InstallDir

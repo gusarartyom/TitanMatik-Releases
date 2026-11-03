@@ -1,5 +1,8 @@
 name: TitanMatik installer releases
 on:
+  push:
+    branches: [main]
+    paths: ['installer/**', 'update_pipeline/**', '.github/workflows/update.yml']
   workflow_dispatch:
     inputs:
       mode:
@@ -23,7 +26,7 @@ jobs:
     if: >-
       github.event.repository.private == false &&
       ((github.event_name == 'workflow_dispatch' && inputs.mode != 'promote') ||
-       (github.event_name == 'schedule' && vars.TITANMATIK_PRODUCTION_ENABLED == 'true'))
+       github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -31,7 +34,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      PRODUCTION_ENABLED: ${{ vars.TITANMATIK_PRODUCTION_ENABLED }}
+      PRODUCTION_ENABLED: 'true'
+      ANNOUNCEMENTS_ENABLED: ${{ vars.TITANMATIK_ANNOUNCEMENTS_ENABLED }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -102,7 +106,7 @@ jobs:
           UPDATE_CHANNEL_ID: ${{ vars.UPDATE_CHANNEL_ID }}
         run: python update_pipeline/github_release.py prepare $env:MODE
       - name: Finish unsent announcement for unchanged stable release
-        if: steps.compare.outputs.changed == 'false' && github.event_name == 'schedule'
+        if: steps.compare.outputs.changed == 'false' && github.event_name == 'schedule' && vars.TITANMATIK_ANNOUNCEMENTS_ENABLED == 'true'
         env:
           UPDATE_BOT_TOKEN: ${{ secrets.UPDATE_BOT_TOKEN }}
           UPDATE_CHANNEL_ID: ${{ vars.UPDATE_CHANNEL_ID }}
