@@ -413,8 +413,8 @@ begin
   end;
   if (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdesktop}')) = 0) or
      (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userdocs}')) = 0) or
-     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}\Downloads')) = 0) or
-     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{userprofile}')) = 0) then begin
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{%USERPROFILE}\Downloads')) = 0) or
+     (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExpandConstant('{%USERPROFILE}')) = 0) then begin
     Result := 'Установка прямо в рабочий стол, загрузки или документы запрещена. Используйте отдельную папку программы.';
     exit;
   end;
