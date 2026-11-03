@@ -57,3 +57,13 @@ in the release body; ambiguous delivery is never automatically retried.
 
 Only standard runners in this public repository are used; no R2, paid runners,
 Actions caches, artifact uploads or cross-repository bot tokens are required.
+
+## Installation discovery and shared desktop
+
+The remembered installation is one candidate, not a reason to stop searching.
+When several copies exist, an interactive update requires selecting one; a silent
+update without an explicit directory refuses to guess. An existing shared desktop
+TitanMatik shortcut for the selected installation is updated instead of creating a
+second user shortcut. If that shared shortcut is not writable, setup stops before
+changing program files and asks to run as administrator. Unrelated shortcuts and
+other installations are preserved.

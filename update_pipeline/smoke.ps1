@@ -61,6 +61,33 @@ foreach ($name in @('HeroWarsBro.lnk','Old TitanMatik.lnk','Обновить Tit
     if (Test-Path -LiteralPath (Join-Path $desktop $name)) { throw 'Duplicate desktop shortcut remains' }
 }
 if (-not (Test-Path -LiteralPath $unrelated)) { throw 'Unrelated desktop shortcut was removed' }
+# A saved path must not hide another copy discovered through its shortcut.
+$secondTarget = Join-Path $env:RUNNER_TEMP ('TitanMatik-second-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $secondTarget | Out-Null
+foreach ($name in @('HeroWarsBro.exe','e_sqlite3.dll','WebView2Loader.dll')) {
+    Copy-Item -LiteralPath (Join-Path $target $name) -Destination (Join-Path $secondTarget $name)
+}
+$secondLink = Join-Path $desktop 'Second TitanMatik test.lnk'
+$old = $shell.CreateShortcut($secondLink); $old.TargetPath=Join-Path $secondTarget 'HeroWarsBro.exe'; $old.Save()
+$before = (Get-FileHash -LiteralPath (Join-Path $target 'HeroWarsBro.exe')).Hash
+$refused = $false
+try { Install -AutoDetect } catch { $refused = $true }
+if (-not $refused -or -not (Select-String -LiteralPath $script:LastInstallerLog -Pattern 'PrepareToInstall failed:.*несколько копий' -Quiet)) { throw 'Saved installation hid the second installation' }
+if ((Get-FileHash -LiteralPath (Join-Path $target 'HeroWarsBro.exe')).Hash -ne $before) { throw 'Ambiguous discovery changed the application' }
+Remove-Item -LiteralPath $secondLink
+# Update an existing shared shortcut instead of keeping both shared and user links.
+$commonLink = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'TitanMatik.lnk'
+if (Test-Path -LiteralPath $commonLink) { throw 'Common desktop fixture is not isolated' }
+$old = $shell.CreateShortcut($commonLink); $old.TargetPath=Join-Path $target 'HeroWarsBro.exe'; $old.Save()
+try {
+    Start-Sleep -Seconds 1
+    Install
+    if (Test-Path -LiteralPath $mainLink) { throw 'Both common and user shortcuts remain' }
+    $shared = $shell.CreateShortcut($commonLink)
+    if ($shared.IconLocation -notlike ((Join-Path $target 'TitanMatik.ico') + '*')) { throw 'Common shortcut logo was not updated' }
+} finally { Remove-Item -LiteralPath $commonLink -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 1
+Install
 # Disposable hosted runner only: simulate a ZIP install with a shortcut but no
 # remembered path. Restore the test path even if discovery fails.
 $testSavedPath = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\TitanMatik' -Name InstallDir
