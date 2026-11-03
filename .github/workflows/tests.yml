@@ -27,6 +27,8 @@ jobs:
           with zipfile.ZipFile('build/fixture.zip', 'w') as z:
               z.writestr('HeroWarsBro.exe', b'MZ-safe-non-executable-test-fixture')
               z.writestr('support.dll', b'MZ-safe-fixture')
+              z.writestr('e_sqlite3.dll', b'MZ-safe-database-fixture')
+              z.writestr('WebView2Loader.dll', b'MZ-safe-webview-fixture')
       - run: python update_pipeline/archive.py build/fixture.zip build/payload build/manifest.json
       - run: python update_pipeline/build_installer.py
       - name: Compile normal and fault-test installers
