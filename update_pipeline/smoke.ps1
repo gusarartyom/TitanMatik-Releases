@@ -10,7 +10,12 @@ function Install([switch]$AutoDetect) {
     $script:LastInstallerLog = $log
     $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="' + $log + '"'))
     if (-not $AutoDetect) { $arguments += ('/DIR="' + $target + '"') }
-    $p = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+    Write-Output ('Testing installation; automatic discovery=' + [bool]$AutoDetect)
+    $p = Start-Process -FilePath $setup -ArgumentList $arguments -PassThru -WindowStyle Hidden
+    if (-not $p.WaitForExit(120000)) {
+        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 80 }
+        throw 'Installer did not exit within two minutes on the disposable test runner'
+    }
     if ($p.ExitCode -ne 0) {
         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 80 }
         throw "Installer failed: $($p.ExitCode)"
@@ -18,7 +23,11 @@ function Install([switch]$AutoDetect) {
 }
 # A headless update with no known installation must not silently create a copy.
 $unknownLog = Join-Path $env:RUNNER_TEMP ('TitanMatik-unknown-' + [guid]::NewGuid() + '.log')
-$unknown = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="'+$unknownLog+'"')) -Wait -PassThru -WindowStyle Hidden
+$unknown = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="'+$unknownLog+'"')) -PassThru -WindowStyle Hidden
+if (-not $unknown.WaitForExit(120000)) {
+    if (Test-Path -LiteralPath $unknownLog) { Get-Content -LiteralPath $unknownLog -Tail 80 }
+    throw 'Unknown installation hung instead of refusing a silent first installation'
+}
 if ($unknown.ExitCode -ne 7) { throw 'Unknown installation did not require an explicit install/update choice' }
 if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'TitanMatik/HeroWarsBro.exe')) { throw 'Unknown installation created an unexpected second copy' }
 Install

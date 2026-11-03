@@ -295,6 +295,9 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  { Silent installations cannot answer custom pages. PrepareToInstall below
+    rejects missing/ambiguous choices without displaying a blocking MsgBox. }
+  if WizardSilent then exit;
   if (InstallIntent <> nil) and (CurPageID = InstallIntent.ID) then begin
     Result := InstallIntent.SelectedValueIndex >= 0;
     if not Result then begin
